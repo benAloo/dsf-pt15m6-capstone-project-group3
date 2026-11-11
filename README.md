@@ -159,7 +159,7 @@ Age, shopping category and average transaction value contribute little or nothin
 
 ---
 
-## 🖥️ The Dashboard
+## Dashboard
 
 The Streamlit app ([`Mkopo_Insights/app.py`](Mkopo_Insights/app.py)) is organised into five pages:
 
