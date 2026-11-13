@@ -1,0 +1,6 @@
+Scenario,Macro F1 (argmax),Employed median (KSh)
+Baseline,0.857,56490
+All incomes -25%,0.852,42360
+All incomes +25%,0.854,70610
+Non-employed medians x0.5,0.867,56490
+Non-employed medians x2,0.855,56490

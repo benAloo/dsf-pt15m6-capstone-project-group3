@@ -1,0 +1,6 @@
+.streamlit/secrets.toml
+mkopo_insights_pro/.streamlit/secrets.toml
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+_build/

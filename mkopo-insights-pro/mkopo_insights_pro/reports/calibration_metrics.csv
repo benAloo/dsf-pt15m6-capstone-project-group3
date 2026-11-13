@@ -1,0 +1,4 @@
+Metric,Raw probabilities,Calibrated
+Log loss,0.1296,0.099
+Brier score,0.0716,0.0571
+Expected calibration error (risk score),0.0251,0.0122
