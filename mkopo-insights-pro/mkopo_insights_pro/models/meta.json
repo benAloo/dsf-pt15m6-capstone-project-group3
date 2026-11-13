@@ -1,0 +1,100 @@
+{
+  "model_name": "XGBoost",
+  "selection_rule": "Highest cross-validated macro F1; models within 0.005 of the best are tied and the one with exact customer-level explanations is preferred. Tied: Random Forest, XGBoost.",
+  "best_params": {
+    "learning_rate": 0.1,
+    "max_depth": 5,
+    "n_estimators": 250
+  },
+  "cv_macro_f1": 0.8632789598538965,
+  "thresholds": {
+    "high": 0.56,
+    "medium": 0.42
+  },
+  "test_metrics": {
+    "accuracy": 0.9565,
+    "macro_precision": 0.8538207312124414,
+    "macro_recall": 0.8817470519676402,
+    "macro_f1": 0.863959625712203,
+    "balanced_accuracy": 0.8817470519676402,
+    "roc_auc_ovr": 0.9882475251729878
+  },
+  "class_balance": {
+    "Low": 8801,
+    "Medium": 678,
+    "High": 521
+  },
+  "train_size": 8000,
+  "test_size": 2000,
+  "business_assumptions": {
+    "exposure": 2500.0,
+    "lgd": 0.7,
+    "margin": 0.12,
+    "medium_weight": 0.35
+  },
+  "imputation_medians": {
+    "Monthly_Income_KES": {
+      "Employed": 56375.0,
+      "Freelancer": 41060.0,
+      "Student": 10010.0,
+      "Unemployed": 6170.0
+    },
+    "Credit_Score": {
+      "Employed": 699.0,
+      "Freelancer": 646.0,
+      "Student": 598.0,
+      "Unemployed": 544.5
+    }
+  },
+  "calibration": {
+    "fx_usd_kes": 129.89,
+    "money_scale_factor": 0.07395425061628626,
+    "employed_lognormal": {
+      "mu": 10.935085326657736,
+      "sigma": 0.4936833790054719
+    },
+    "targets": {
+      "Employed": {
+        "median": 56110.89765006289,
+        "sigma": 0.4936833790054719,
+        "floor": 18047.4,
+        "cap": 400000,
+        "basis": "Fitted to KNBS formal pay bands; floor is the city minimum wage"
+      },
+      "Freelancer": {
+        "median": 40000,
+        "sigma": 0.75,
+        "floor": 9628.07,
+        "cap": 300000,
+        "basis": "Assumption: below formal median, more volatile; floor is the lowest statutory minimum"
+      },
+      "Student": {
+        "median": 10000,
+        "sigma": 0.6,
+        "floor": 1500,
+        "cap": 60000,
+        "basis": "Assumption: allowances and part-time income"
+      },
+      "Unemployed": {
+        "median": 6000,
+        "sigma": 0.8,
+        "floor": 500,
+        "cap": 40000,
+        "basis": "Assumption: remittances and casual income"
+      }
+    },
+    "benchmarks": {
+      "min_wage_city": 18047.4,
+      "min_wage_other": 9628.07,
+      "knbs_formal_avg_monthly": 82350,
+      "est_formal_median_monthly": 56110.89765006289
+    }
+  },
+  "versions": {
+    "python": "3.10.22",
+    "scikit_learn": "1.6.1",
+    "xgboost": "2.1.4",
+    "pandas": "2.3.3",
+    "numpy": "2.2.6"
+  }
+}

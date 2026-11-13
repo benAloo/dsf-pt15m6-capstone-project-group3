@@ -1,0 +1,10 @@
+dimension,group,customers,actual_non_low_rate,flagged_rate,recall,false_positive_rate
+Employment_Status,Employed,1160,0.018,0.025,0.81,0.011
+Employment_Status,Freelancer,290,0.055,0.083,0.812,0.04
+Employment_Status,Student,433,0.312,0.333,0.933,0.06
+Employment_Status,Unemployed,117,0.581,0.607,0.956,0.122
+Age_Band,18-24,634,0.107,0.118,0.912,0.023
+Age_Band,25-34,544,0.125,0.142,0.956,0.025
+Age_Band,35-44,361,0.133,0.147,0.875,0.035
+Age_Band,45-54,264,0.114,0.136,0.933,0.034
+Age_Band,55+,197,0.132,0.137,0.923,0.018
