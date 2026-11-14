@@ -98,7 +98,7 @@ def render_login() -> None:
                 password = st.text_input("Password", type="password", value=DEMO_PASSWORD if demo else "", placeholder="Your password", autocomplete="current-password")
                 submitted = st.form_submit_button("Sign in", type="primary", width="stretch", disabled=locked)
             if demo:
-                st.markdown("<div class='small'>Demo mode: the demo credentials are pre-filled. Press <b>Sign in</b> to continue.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='small'>El Pro para grupo 3 </div>", unsafe_allow_html=True)
             if locked:
                 st.warning(f"Too many failed attempts. Try again in {remaining} seconds.")
             elif submitted:
