@@ -98,7 +98,7 @@ def render_login() -> None:
                 password = st.text_input("Password", type="password", value=DEMO_PASSWORD if demo else "", placeholder="Your password", autocomplete="current-password")
                 submitted = st.form_submit_button("Sign in", type="primary", width="stretch", disabled=locked)
             if demo:
-                st.markdown("<div class='small'>Credentials are pre-filled for demo purposes. Press <b>Sign in</b> to continue.</div>", unsafe_allow_html=True)
+                pass
             if locked:
                 st.warning(f"Too many failed attempts. Try again in {remaining} seconds.")
             elif submitted:
@@ -262,6 +262,8 @@ def money_input(label: str, field: str, cur: str, rate: float, kes_default: floa
 
 def money(kes: float, short: bool = False) -> str:
     """Format a KSh amount in the currency the user chose."""
+    if kes is None or pd.isna(kes):
+        return "n/a"
     if st.session_state.get("cur") == "USD":
         v = kes / float(st.session_state["fx"])
         if short and abs(v) >= 1e6:
@@ -277,9 +279,9 @@ def fmt_value(feature: str, row: pd.Series) -> str:
     if feature in ("Monthly_Income_KES", "Total_BNPL_Debt_KES", "Average_Transaction_Value_KES"):
         return money(float(v))
     if feature == "Debt_to_Income":
-        return f"{float(v):.2f}x monthly income"
+        return "n/a" if pd.isna(v) else f"{float(v):.2f}x monthly income"
     if feature in ("Age", "Credit_Score", "Total_BNPL_Active_Loans"):
-        return f"{float(v):,.0f}"
+        return "n/a" if pd.isna(v) else f"{float(v):,.0f}"
     return str(v)
 
 
@@ -310,7 +312,6 @@ with st.sidebar:
                   on_click=set_page, args=(name,), width="stretch")
     tm = META["test_metrics"]
     st.markdown(
-        f"<div class='side-card'>Not observed repayments.<br><br>"
         f"Model: {META['model_name']}<br>Test macro F1: {tm['macro_f1']:.2f}<br>Customers: {len(PORT):,}</div>"
         f"<div class='side-label'>Signed in</div>"
         f"<div class='side-card'><b>Administrator</b><br>{st.session_state.get('auth_user', '')}</div>",
@@ -423,6 +424,116 @@ def gauge(score: float, tier: str) -> go.Figure:
     ))
     fig.update_layout(height=250, margin=dict(l=40, r=40, t=20, b=0), paper_bgcolor="rgba(0,0,0,0)", font=dict(family="Plus Jakarta Sans, sans-serif"))
     return fig
+
+
+# ---------------------------------------------------------------------------
+# Customer detail: why one customer is ranked the way they are.
+# Used by Batch scoring and Portfolio explorer when a row is selected.
+# ---------------------------------------------------------------------------
+def _num(v) -> float:
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
+def customer_detail(row: pd.DataFrame, label: str) -> None:
+    """Explain one customer's ranking. `row` is a single-row frame with the raw input columns, in KSh."""
+    res = core.score_customers(ART, row).iloc[0]
+    tier = res["Risk_Tier"]
+    r = core.add_features(row).iloc[0]
+    emp = str(r["Employment_Status"])
+    peers = PORT[PORT["Employment_Status"] == emp]
+    inc, debt, dti = _num(r["Monthly_Income_KES"]), _num(r["Total_BNPL_Debt_KES"]), _num(r["Debt_to_Income"])
+    credit, loans, txn = _num(r["Credit_Score"]), _num(r["Total_BNPL_Active_Loans"]), _num(r["Average_Transaction_Value_KES"])
+    limit = max(0.0, core.POLICY[tier]["limit_pct"] * (0.0 if np.isnan(inc) else inc) - (0.0 if np.isnan(debt) else debt))
+
+    with card():
+        h1, h2 = st.columns([4, 1])
+        h1.markdown(f"#### Why {label} is ranked {tier.lower()} risk")
+        h2.markdown(f"<div style='text-align:right'>{badge(tier)}</div>", unsafe_allow_html=True)
+        kpi_strip([
+            ("Risk score", f"{res['Risk_Score']:.0f}", "Out of 100", core.TIER_COLORS[tier]),
+            ("Probability of High", pct(res["P_High"]), f"Medium {pct(res['P_Medium'])}, Low {pct(res['P_Low'])}"),
+            ("Debt relative to income", "n/a" if np.isnan(dti) else f"{dti:.2f}x", f"Portfolio median {PORT['Debt_to_Income'].median():.2f}x"),
+            ("Suggested new loan limit", money(limit), f"{pct(core.POLICY[tier]['limit_pct'], 0)} of income, minus existing debt"),
+        ])
+
+        g1, g2 = st.columns([2, 3], gap="large")
+        with g1:
+            st.plotly_chart(gauge(res["Risk_Score"], tier), width="stretch")
+            st.caption(f"The line on the gauge is the Medium cutoff ({100 * TH['medium']:.0f}). A customer is High when the probability of High is at least {pct(TH['high'], 0)}.")
+        with g2:
+            contrib = core.explain(ART, row)
+            if contrib is None:
+                st.info("Customer-level reasons are available when the deployed model is XGBoost.")
+            else:
+                vals = contrib.iloc[0].sort_values()
+                top = vals.reindex(vals.abs().sort_values(ascending=False).index[:6]).sort_values()
+                fig = go.Figure(go.Bar(
+                    x=top.values, y=[f"{core.FEATURE_LABELS[f]}: {fmt_value(f, r)}" for f in top.index], orientation="h",
+                    marker_color=[RED if v > 0 else GREEN for v in top.values],
+                    hovertemplate="%{y}<br>Effect on risk: %{x:+.2f}<extra></extra>",
+                ))
+                fig.add_vline(x=0, line_color=INK, line_width=1)
+                fig.update_layout(xaxis_title="Lowers risk  <  0  >  raises risk")
+                st.plotly_chart(style(fig, 270, legend=False), width="stretch")
+                up = [core.FEATURE_LABELS[f].lower() for f in vals[vals > 0.05].sort_values(ascending=False).index[:3]]
+                dn = [core.FEATURE_LABELS[f].lower() for f in vals[vals < -0.05].sort_values().index[:3]]
+                lines = []
+                if up:
+                    lines.append("Raising the score most: " + ", ".join(up) + ".")
+                if dn:
+                    lines.append("Working in the customer's favour: " + ", ".join(dn) + ".")
+                st.markdown(" ".join(lines) if lines else "No single factor dominates this score.")
+
+        # Plain-language warning signs and strengths, judged against the whole portfolio.
+        warn, good = [], []
+        if str(r["Late_Payment_History"]) == "Yes":
+            share_late = (peers["Late_Payment_History"] == "Yes").mean()
+            warn.append(f"Has paid late before. {pct(share_late, 0)} of {emp.lower()} customers have.")
+        if not np.isnan(dti):
+            if dti >= PORT["Debt_to_Income"].quantile(0.90):
+                warn.append("Debt is high relative to income, higher than for 90% of customers.")
+            elif dti <= PORT["Debt_to_Income"].quantile(0.25):
+                good.append("Debt is low relative to income, lower than for 75% of customers.")
+        if loans >= PORT["Total_BNPL_Active_Loans"].quantile(0.90):
+            warn.append(f"Has {loans:.0f} active loans, more than 90% of customers.")
+        if credit <= PORT["Credit_Score"].quantile(0.10):
+            warn.append(f"Credit score of {credit:.0f} is in the lowest 10% of customers.")
+        elif credit >= PORT["Credit_Score"].quantile(0.90):
+            good.append(f"Credit score of {credit:.0f} is in the highest 10% of customers.")
+        if emp == "Employed" and not np.isnan(inc) and inc < META["calibration"]["benchmarks"]["min_wage_city"]:
+            warn.append("Reported income is below the city minimum wage, so it is worth verifying.")
+        w1, w2 = st.columns(2)
+        w1.markdown("**Warning signs**\n\n" + ("\n".join(f"- {t}" for t in warn) if warn else "None of the usual warning signs apply."))
+        w2.markdown("**In the customer's favour**\n\n" + ("\n".join(f"- {t}" for t in good) if good else "No standout strengths against the portfolio."))
+
+        # How the customer compares with typical customers of the same employment status.
+        def ratio(v: float, m: float) -> str:
+            return "n/a" if np.isnan(v) or not m else f"{v / m:.1f}x typical"
+
+        med = {c: float(peers[c].median()) for c in ["Monthly_Income_KES", "Total_BNPL_Debt_KES", "Debt_to_Income", "Credit_Score",
+                                                     "Total_BNPL_Active_Loans", "Average_Transaction_Value_KES"]}
+        rows = [
+            ("Monthly income", money(inc), money(med["Monthly_Income_KES"]), ratio(inc, med["Monthly_Income_KES"])),
+            ("Outstanding debt", money(debt), money(med["Total_BNPL_Debt_KES"]), ratio(debt, med["Total_BNPL_Debt_KES"])),
+            ("Debt relative to income", "n/a" if np.isnan(dti) else f"{dti:.2f}x", f"{med['Debt_to_Income']:.2f}x", ratio(dti, med["Debt_to_Income"])),
+            ("Credit score", f"{credit:.0f}", f"{med['Credit_Score']:.0f}", f"{credit - med['Credit_Score']:+.0f} points"),
+            ("Active loans", f"{loans:.0f}", f"{med['Total_BNPL_Active_Loans']:.0f}", f"{loans - med['Total_BNPL_Active_Loans']:+.0f}"),
+            ("Average purchase value", money(txn), money(med["Average_Transaction_Value_KES"]), ratio(txn, med["Average_Transaction_Value_KES"])),
+            ("Paid late before", str(r["Late_Payment_History"]), f"{pct((peers['Late_Payment_History'] == 'Yes').mean(), 0)} say yes", ""),
+        ]
+        st.markdown(f"**How they compare with typical {emp.lower()} customers**")
+        st.dataframe(pd.DataFrame(rows, columns=["Measure", "This customer", f"Typical {emp.lower()} customer", "Compared with typical"]),
+                     hide_index=True, width="stretch")
+        callout(f"<b>Recommended next step.</b> {core.POLICY[tier]['action']}", warn=tier != "Low")
+
+
+def find_customer(frame: pd.DataFrame, text: str) -> pd.DataFrame | None:
+    """Look up one customer by ID (case-insensitive). Returns a one-row frame or None."""
+    match = frame[frame["Customer_ID"].astype(str).str.upper() == text.strip().upper()]
+    return match.iloc[[0]] if not match.empty else None
 
 
 def page_scorecard() -> None:
@@ -607,16 +718,19 @@ def page_batch() -> None:
         ("High", f"{counts['High']:,}", pct(counts["High"] / len(out))),
         ("Average risk score", f"{out['Risk_Score'].mean():.0f}", "Out of 100"),
     ])
+    show = out.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
+    has_id = "Customer_ID" in show.columns
     a, b = st.columns([1, 2])
     with a, card():
         fig = go.Figure(go.Pie(labels=TIERS, values=[counts[t] for t in TIERS], hole=0.62, marker_colors=[core.TIER_COLORS[t] for t in TIERS], sort=False, textinfo="percent"))
         st.plotly_chart(style(fig, 250), width="stretch")
     with b, card():
-        show = out.sort_values("Risk_Score", ascending=False)
-        cols = (["Customer_ID"] if "Customer_ID" in show.columns else []) + ["Risk_Tier", "Risk_Score", "P_High", "Employment_Status", "Monthly_Income_KES", "Total_BNPL_Debt_KES", "Late_Payment_History"]
-        styled = show[cols].head(200).style.map(lambda v: f"background-color:{core.TIER_COLORS.get(v, 'white')};color:white;font-weight:600" if v in core.TIER_COLORS else "", subset=["Risk_Tier"])
-        st.dataframe(
-            styled, hide_index=True, height=250, width="stretch",
+        cols = (["Customer_ID"] if has_id else []) + ["Risk_Tier", "Risk_Score", "P_High", "Employment_Status", "Monthly_Income_KES", "Total_BNPL_Debt_KES", "Late_Payment_History"]
+        shown = show[cols].head(200)
+        styled = shown.style.map(lambda v: f"background-color:{core.TIER_COLORS.get(v, 'white')};color:white;font-weight:600" if v in core.TIER_COLORS else "", subset=["Risk_Tier"])
+        event = st.dataframe(
+            styled, hide_index=True, height=250, width="stretch", key="batch_table",
+            on_select="rerun", selection_mode="single-row",
             column_config={
                 "Risk_Score": st.column_config.ProgressColumn("Risk score", min_value=0, max_value=100, format="%.0f"),
                 "P_High": st.column_config.NumberColumn("P(High)", format="%.2f"),
@@ -625,6 +739,23 @@ def page_batch() -> None:
             },
         )
         st.caption("Showing the 200 highest-risk rows. The download contains every scored row, with amounts in KSh.")
+
+    # Click a row (or look up an ID) to see why that customer is ranked the way they are.
+    picked = None
+    rows_selected = list(event.selection.rows) if event is not None else []
+    lookup = st.text_input("Or look up a customer by ID", key="batch_lookup", placeholder="For example C00123") if has_id else ""
+    if lookup.strip():
+        picked = find_customer(show, lookup)
+        if picked is None:
+            st.warning(f"No customer with ID {lookup.strip()} in this file.")
+    elif rows_selected and rows_selected[0] < len(shown):
+        picked = show.iloc[[rows_selected[0]]]
+    if picked is not None:
+        label = str(picked["Customer_ID"].iloc[0]) if has_id else f"row {rows_selected[0] + 1}"
+        customer_detail(picked[core.RAW_INPUT_COLS].reset_index(drop=True), label)
+    else:
+        callout("<b>See why a customer is ranked this way.</b> Tick the box at the left of any row in the table above"
+                + (", or type a customer ID." if has_id else "."))
     buf = io.StringIO()
     out.to_csv(buf, index=False)
     st.download_button("Download scored file (CSV)", buf.getvalue().encode(), "mkopo_scored_customers.csv", "text/csv", type="primary")
@@ -650,7 +781,7 @@ def page_business() -> None:
         lgd = a2.slider("Loss if a customer defaults", 10, 100, int(100 * base["lgd"]), help="Share of the exposure that is lost on a default.") / 100
         margin = a3.slider("Margin on a performing loan", 1, 40, int(100 * base["margin"]), help="Fees and interest earned, as a share of exposure.") / 100
         mw = a4.slider("Chance a Medium customer defaults", 0, 100, int(100 * base["medium_weight"])) / 100
-        st.caption("These are placeholders for a demo. Replace them with your own economics. High customers are treated as defaults and Low customers as performing.")
+        st.caption("High customers are treated as defaults and Low customers as performing.")
 
     cutoffs = np.round(np.arange(0.01, 1.0001, 0.01), 2)
     score, actual = tp["Risk_Score"].values / 100, tp["Actual_Risk"].values
@@ -749,13 +880,15 @@ def page_portfolio() -> None:
         fig.update_yaxes(title="Debt relative to income (x)")
         st.plotly_chart(style(fig, 330), width="stretch")
 
+    ranked = f.sort_values("Risk_Score", ascending=False).reset_index(drop=True)
     with card():
         st.markdown("#### Watchlist: highest-risk customers in this view")
         cols = ["Customer_ID", "Risk_Tier", "Risk_Score", "Employment_Status", "Age", "Monthly_Income_KES", "Total_BNPL_Debt_KES", "Debt_to_Income", "Total_BNPL_Active_Loans", "Late_Payment_History", "Credit_Score"]
-        wl = f.sort_values("Risk_Score", ascending=False)[cols]
-        st.dataframe(
+        wl = ranked[cols]
+        event = st.dataframe(
             wl.head(50).style.map(lambda v: f"background-color:{core.TIER_COLORS.get(v, 'white')};color:white;font-weight:600" if v in core.TIER_COLORS else "", subset=["Risk_Tier"]),
-            hide_index=True, height=320, width="stretch",
+            hide_index=True, height=320, width="stretch", key="watchlist_table",
+            on_select="rerun", selection_mode="single-row",
             column_config={
                 "Risk_Score": st.column_config.ProgressColumn("Risk score", min_value=0, max_value=100, format="%.0f"),
                 "Monthly_Income_KES": st.column_config.NumberColumn("Monthly income", format="KSh %d"),
@@ -765,6 +898,21 @@ def page_portfolio() -> None:
         )
         st.download_button("Download filtered customers (CSV)", wl.to_csv(index=False).encode(), "mkopo_watchlist.csv", "text/csv")
         st.caption("Scores cover the whole portfolio, including customers the model was trained on. Use the Model and governance page for held-out performance.")
+
+    # Click a row (or look up any customer ID) to see why that customer is ranked the way they are.
+    picked = None
+    rows_selected = list(event.selection.rows) if event is not None else []
+    lookup = st.text_input("Or look up any customer by ID", key="port_lookup", placeholder="For example C00123")
+    if lookup.strip():
+        picked = find_customer(df, lookup)
+        if picked is None:
+            st.warning(f"No customer with ID {lookup.strip()} in the portfolio.")
+    elif rows_selected and rows_selected[0] < min(50, len(ranked)):
+        picked = ranked.iloc[[rows_selected[0]]]
+    if picked is not None:
+        customer_detail(picked[core.RAW_INPUT_COLS].reset_index(drop=True), str(picked["Customer_ID"].iloc[0]))
+    else:
+        callout("<b>See why a customer is ranked this way.</b> Tick the box at the left of any row in the watchlist, or type a customer ID.")
 
 
 def page_governance() -> None:
@@ -874,9 +1022,7 @@ def page_governance() -> None:
         st.markdown(f"""
 **Intended use.** Decision support for Debt credit analysts: screening applicants, setting starter limits and prioritising accounts for review. A person makes the decision.
 
-**Not intended for.** Fully automated approvals or declines, regulatory capital calculations, or use on customers or markets unlike the training data.
-
-**Model.** {META['model_name']} with calibrated probabilities (vector scaling on out-of-fold predictions). Tier cutoffs: High if P(High) is at least {TH['high']:.2f}; otherwise Medium if P(Medium) + P(High) is at least {TH['medium']:.2f}; otherwise Low.
+**Model.** {META['model_name']}, (vector scaling on out-of-fold predictions). Tier cutoffs: High if P(High) is at least {TH['high']:.2f}; otherwise Medium if P(Medium) + P(High) is at least {TH['medium']:.2f}; otherwise Low.
 
 **Data.** {META['train_size'] + META['test_size']:,} synthetic customers, split {META['train_size']:,} for training and {META['test_size']:,} for testing, stratified by risk class. Class balance: {', '.join(f"{k} {v:,}" for k, v in META['class_balance'].items())}.
 
@@ -895,4 +1041,3 @@ PAGE_FUNCS = {
     "Business impact": page_business, "Portfolio explorer": page_portfolio, "Model and governance": page_governance,
 }
 PAGE_FUNCS[page]()
-
