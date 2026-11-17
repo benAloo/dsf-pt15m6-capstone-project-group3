@@ -68,7 +68,7 @@ def render_login() -> None:
 <div class='login-hero'>
   <div>
     <div class='brand'><div class='logo'>M</div><div><div class='brand-name'>Mkopo Insights</div>
-    <div class='brand-sub'>BNPL credit risk for Kenyan lenders</div></div></div>
+    <div class='brand-sub'>Buy Now Pay Later credit risk for Kenyan lenders</div></div></div>
     <h2>Know the risk before you lend.</h2>
     <div class='lead'>Score customers, understand the reasons behind every score, and set approval cutoffs with
     calibrated probabilities built for the Kenyan market.</div>
@@ -98,7 +98,7 @@ def render_login() -> None:
                 password = st.text_input("Password", type="password", value=DEMO_PASSWORD if demo else "", placeholder="Your password", autocomplete="current-password")
                 submitted = st.form_submit_button("Sign in", type="primary", width="stretch", disabled=locked)
             if demo:
-                st.markdown("<div class='small'>Demo mode: the demo credentials are pre-filled. Press <b>Sign in</b> to continue.</div>", unsafe_allow_html=True)
+                st.markdown("<div class='small'>Credentials are pre-filled for demo purposes. Press <b>Sign in</b> to continue.</div>", unsafe_allow_html=True)
             if locked:
                 st.warning(f"Too many failed attempts. Try again in {remaining} seconds.")
             elif submitted:
@@ -301,7 +301,7 @@ def set_page(name: str) -> None:
 with st.sidebar:
     st.markdown(
         "<div class='brand'><div class='logo'>M</div><div><div class='brand-name'>Mkopo Insights</div>"
-        "<div class='brand-sub'>BNPL credit risk for Kenyan lenders</div></div></div>"
+        "<div class='brand-sub'>Buy Now Pay Later credit risk for Kenyan lenders</div></div></div>"
         "<div class='side-label'>Workspace</div>",
         unsafe_allow_html=True,
     )
@@ -310,7 +310,7 @@ with st.sidebar:
                   on_click=set_page, args=(name,), width="stretch")
     tm = META["test_metrics"]
     st.markdown(
-        f"<div class='side-card'><b>Demo build</b><br>Not observed repayments.<br><br>"
+        f"<div class='side-card'>Not observed repayments.<br><br>"
         f"Model: {META['model_name']}<br>Test macro F1: {tm['macro_f1']:.2f}<br>Customers: {len(PORT):,}</div>"
         f"<div class='side-label'>Signed in</div>"
         f"<div class='side-card'><b>Administrator</b><br>{st.session_state.get('auth_user', '')}</div>",
@@ -323,7 +323,7 @@ page = st.session_state["page"]
 def page_overview() -> None:
     page_header(
         "Portfolio risk at a glance",
-        "Where BNPL customers and shillings sit across risk tiers, and what separates the safe book from the stretched one.",
+        "Where Buy Now Pay Later customers and shillings sit across risk tiers, and what separates the safe book from the stretched one.",
     )
     df = PORT
     exposure = df["Total_BNPL_Debt_KES"].sum()
@@ -334,7 +334,7 @@ def page_overview() -> None:
 
     kpi_strip([
         ("Customers", f"{len(df):,}", "In the scored portfolio"),
-        ("BNPL exposure", core.kes_short(exposure), f"Median {core.kes(df['Total_BNPL_Debt_KES'].median())} per customer"),
+        ("Debt exposure", core.kes_short(exposure), f"Median {core.kes(df['Total_BNPL_Debt_KES'].median())} per customer"),
         ("Flagged Medium or High", pct(flagged), f"{int((df['Risk_Tier'] != 'Low').sum()):,} customers", AMBER),
         ("Exposure in High tier", pct(high_x), core.kes_short(by_tier_x["High"]), RED),
         ("Median monthly income", core.kes(df["Monthly_Income_KES"].median()), "All employment types"),
@@ -352,7 +352,7 @@ def page_overview() -> None:
     fig.update_layout(barmode="stack", xaxis=dict(visible=False, range=[0, 1]), yaxis=dict(autorange="reversed"))
     with card():
         st.markdown("#### Risk ribbon")
-        st.caption("Share of customers and share of outstanding BNPL shillings in each tier. A wider red band in the lower bar means the risk is concentrated in larger balances.")
+        st.caption("Share of customers and share of outstanding Buy Now Pay Later shillings in each tier. A wider red band in the lower bar means the risk is concentrated in larger balances.")
         st.plotly_chart(style(fig, 170), width="stretch")
 
     c1, c2 = st.columns(2)
@@ -437,8 +437,8 @@ def page_scorecard() -> None:
         emp = c2.selectbox("Employment", core.EMPLOYMENT_OPTIONS, key="f_emp")
         inc = money_input("Monthly income", "inc", cur, rate, 56_000, 2_000_000, 1_000, 10)
         credit = st.slider("Credit score", 300, 850, 650, key="f_credit")
-        loans = st.slider("Active BNPL loans", 0, 15, 2, key="f_loans")
-        debt = money_input("Outstanding BNPL debt", "debt", cur, rate, 3_000, 5_000_000, 500, 5)
+        loans = st.slider("Active loans", 0, 15, 2, key="f_loans")
+        debt = money_input("Outstanding debt", "debt", cur, rate, 3_000, 5_000_000, 500, 5)
         txn = money_input("Average purchase value", "txn", cur, rate, 3_000, 500_000, 500, 5)
         c3, c4 = st.columns(2)
         late = c3.selectbox("Paid late before", core.YES_NO, key="f_late")
@@ -470,11 +470,11 @@ def page_scorecard() -> None:
             g1, g2 = st.columns([3, 2])
             g1.plotly_chart(gauge(res["Risk_Score"], tier), width="stretch")
             with g2:
-                st.markdown(f"<div class='small'>Probability of each class</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='small'>Classification of each class</div>", unsafe_allow_html=True)
                 for t, key in zip(TIERS, ["P_Low", "P_Medium", "P_High"]):
-                    st.markdown(f"<div style='margin:6px 0 0 0'><b>{t}</b> <span class='small'>{pct(res[key])}</span></div>", unsafe_allow_html=True)
+                    st.markdown(f"<div style='margin:6px 0 0 0'><b>{t} Risk</b> <span class='small'>{pct(res[key])}</span></div>", unsafe_allow_html=True)
                     st.progress(float(res[key]))
-            st.caption(f"The line on the gauge is the Medium cutoff ({100 * TH['medium']:.0f}). A customer is High when the probability of High is at least {pct(TH['high'], 0)}.")
+            # st.caption(f"The line on the gauge is the Medium cutoff ({100 * TH['medium']:.0f}). A customer is High when the probability of High is at least {pct(TH['high'], 0)}.")
 
         with st.expander("Credit policy settings (illustrative)"):
             pc = st.columns(3)
@@ -483,8 +483,8 @@ def page_scorecard() -> None:
         dti = debt / max(inc, 1)
         same = PORT[PORT["Employment_Status"] == emp]["Monthly_Income_KES"]
         kpi_strip([
-            ("Suggested new BNPL limit", money(limit), f"{pct(limits[tier], 0)} of income, minus existing debt", core.TIER_COLORS[tier]),
-            ("Debt relative to income", f"{dti:.2f}x", "BNPL debt divided by monthly income"),
+            ("Suggested new Loan limit you can give to the customer.", money(limit), f"{pct(limits[tier], 0)} of income, minus existing debt", core.TIER_COLORS[tier]),
+            ("Debt relative to income", f"{dti:.2f}x", "Debt divided by monthly income"),
             ("Income percentile", ordinal(int(round(100 * (same < inc).mean()))), f"Among {emp.lower()} customers"),
         ])
         callout(f"<b>Recommended next step.</b> {core.POLICY[tier]['action']}", warn=tier != "Low")
@@ -621,7 +621,7 @@ def page_batch() -> None:
                 "Risk_Score": st.column_config.ProgressColumn("Risk score", min_value=0, max_value=100, format="%.0f"),
                 "P_High": st.column_config.NumberColumn("P(High)", format="%.2f"),
                 "Monthly_Income_KES": st.column_config.NumberColumn("Monthly income", format="KSh %d"),
-                "Total_BNPL_Debt_KES": st.column_config.NumberColumn("BNPL debt", format="KSh %d"),
+                "Total_BNPL_Debt_KES": st.column_config.NumberColumn("Debt", format="KSh %d"),
             },
         )
         st.caption("Showing the 200 highest-risk rows. The download contains every scored row, with amounts in KSh.")
@@ -721,7 +721,7 @@ def page_portfolio() -> None:
         return
     kpi_strip([
         ("Customers", f"{len(f):,}", pct(len(f) / len(df)) + " of portfolio"),
-        ("BNPL exposure", money(f["Total_BNPL_Debt_KES"].sum(), True), f"Median {money(f['Total_BNPL_Debt_KES'].median())}"),
+        ("Debt exposure", money(f["Total_BNPL_Debt_KES"].sum(), True), f"Median {money(f['Total_BNPL_Debt_KES'].median())}"),
         ("Average risk score", f"{f['Risk_Score'].mean():.0f}", "Out of 100"),
         ("Median debt relative to income", f"{f['Debt_to_Income'].median():.2f}x", "Months of income owed"),
         ("Paid late before", pct((f["Late_Payment_History"] == "Yes").mean(), 0), "Of filtered customers"),
@@ -759,7 +759,7 @@ def page_portfolio() -> None:
             column_config={
                 "Risk_Score": st.column_config.ProgressColumn("Risk score", min_value=0, max_value=100, format="%.0f"),
                 "Monthly_Income_KES": st.column_config.NumberColumn("Monthly income", format="KSh %d"),
-                "Total_BNPL_Debt_KES": st.column_config.NumberColumn("BNPL debt", format="KSh %d"),
+                "Total_BNPL_Debt_KES": st.column_config.NumberColumn("Debt", format="KSh %d"),
                 "Debt_to_Income": st.column_config.NumberColumn("Debt / income", format="%.2fx"),
             },
         )
@@ -872,7 +872,7 @@ def page_governance() -> None:
 
     with t5:
         st.markdown(f"""
-**Intended use.** Decision support for BNPL credit analysts: screening applicants, setting starter limits and prioritising accounts for review. A person makes the decision.
+**Intended use.** Decision support for Debt credit analysts: screening applicants, setting starter limits and prioritising accounts for review. A person makes the decision.
 
 **Not intended for.** Fully automated approvals or declines, regulatory capital calculations, or use on customers or markets unlike the training data.
 
